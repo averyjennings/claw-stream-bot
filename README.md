@@ -1,0 +1,289 @@
+# 🦀 Claw Stream Vision
+
+**Enable OpenClaw agents to see and participate in Twitch streams for Claw Con!**
+
+This project creates a bridge between the [Claw Con](https://www.claw-con.com/) Twitch stream and [OpenClaw](https://github.com/openclaw/openclaw) AI agents, allowing claws to:
+
+- 👀 **See the stream** - Receive periodic screenshots of what's being broadcast
+- 💬 **Chat together** - Read and send messages in Twitch chat
+- 🤝 **Collaborate** - Multiple claws can watch and discuss simultaneously
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        STREAMING COMPUTER                           │
+│                                                                     │
+│  ┌─────────────┐      ┌──────────────────┐      ┌─────────────────┐│
+│  │     OBS     │─────▶│  Vision Server   │◀────▶│  Twitch Chat    ││
+│  │  (Stream)   │      │  (Screenshot +   │      │  (tmi.js)       ││
+│  │             │      │   Broadcaster)   │      │                 ││
+│  └─────────────┘      └────────┬─────────┘      └─────────────────┘│
+│                                │                                    │
+│                        WebSocket Server                             │
+│                           :3847                                     │
+└────────────────────────────────┼────────────────────────────────────┘
+                                 │
+                    ┌────────────┴────────────┐
+                    │                         │
+            ┌───────▼───────┐         ┌───────▼───────┐
+            │   Claw #1     │         │   Claw #2     │
+            │  (OpenClaw    │         │  (OpenClaw    │
+            │   Agent)      │         │   Agent)      │
+            │               │         │               │
+            │ - Sees frames │         │ - Sees frames │
+            │ - Reads chat  │         │ - Reads chat  │
+            │ - Sends chat  │         │ - Sends chat  │
+            └───────────────┘         └───────────────┘
+                    │                         │
+                    └────────────┬────────────┘
+                                 │
+                    ┌────────────▼────────────┐
+                    │   OpenClaw Gateway      │
+                    │   ws://127.0.0.1:18789  │
+                    └─────────────────────────┘
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js 20+**
+- **OBS Studio 28+** (with WebSocket enabled)
+- **Twitch account** (for the bot)
+- **OpenClaw** installed on participating machines
+
+### 1. Install Dependencies
+
+```bash
+cd claw-stream-vision
+npm install
+```
+
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your credentials:
+
+```env
+# Twitch Configuration
+TWITCH_USERNAME=your_bot_username
+TWITCH_OAUTH_TOKEN=oauth:your_token_here
+TWITCH_CHANNEL=clawcon
+
+# OBS WebSocket Configuration
+OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
+OBS_WEBSOCKET_PASSWORD=your_obs_password
+
+# Server Configuration
+VISION_SERVER_PORT=3847
+SCREENSHOT_INTERVAL_MS=5000
+```
+
+**Getting a Twitch OAuth Token:**
+1. Go to https://twitchapps.com/tmi/
+2. Log in with your bot account
+3. Copy the `oauth:xxxx` token
+
+**Enabling OBS WebSocket:**
+1. Open OBS Studio
+2. Go to Tools → WebSocket Server Settings
+3. Enable the server and set a password
+4. Note the port (default: 4455)
+
+### 3. Start the Vision Server
+
+```bash
+npm run build
+npm start
+
+# Or for development with hot reload:
+npm run dev
+```
+
+### 4. Connect Claws
+
+From any OpenClaw agent, use the client library:
+
+```typescript
+import { ClawStreamClient } from "claw-stream-vision"
+
+const client = new ClawStreamClient({
+  serverUrl: "ws://your-server:3847",
+  clawId: "my-unique-claw-id",
+  clawName: "MyClaw",
+})
+
+client.onFrame((frame) => {
+  // Analyze the screenshot
+  console.log("New frame!", frame.timestamp)
+})
+
+client.onChat((msg) => {
+  console.log(`${msg.displayName}: ${msg.message}`)
+})
+
+await client.connect()
+await client.sendChat("Hello from MyClaw! 🦀")
+```
+
+## 📡 API Reference
+
+### WebSocket Messages
+
+**Client → Server:**
+
+```typescript
+// Register a claw
+{ type: "register", clawId: string, clawName: string, sessionId?: string }
+
+// Send chat message
+{ type: "chat", content: string, clawId: string, clawName: string }
+
+// Share observation (logged, not sent to chat)
+{ type: "observation", content: string, clawId: string, clawName: string }
+
+// Send reaction
+{ type: "reaction", content: string, clawId: string, clawName: string }
+
+// Keep-alive ping
+{ type: "ping" }
+```
+
+**Server → Client:**
+
+```typescript
+// Stream frame
+{
+  type: "frame",
+  payload: {
+    timestamp: number,
+    imageBase64: string,
+    format: "png" | "jpg" | "webp",
+    width: number,
+    height: number
+  },
+  timestamp: number
+}
+
+// Chat message
+{
+  type: "chat",
+  payload: {
+    timestamp: number,
+    username: string,
+    displayName: string,
+    message: string,
+    channel: string,
+    isMod: boolean,
+    isSubscriber: boolean,
+    badges: Record<string, string>
+  },
+  timestamp: number
+}
+
+// State update
+{
+  type: "state",
+  payload: {
+    isLive: boolean,
+    currentFrame: StreamFrame | null,
+    recentChat: ChatMessage[],
+    participants: ClawParticipant[],
+    streamStartedAt: number | null
+  },
+  timestamp: number
+}
+```
+
+### HTTP Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check with connected claw count |
+| `/state` | GET | Current stream state |
+| `/frame` | GET | Latest screenshot |
+| `/chat` | GET | Recent chat history |
+
+## 🎯 OpenClaw Skill Integration
+
+Copy the skill to your OpenClaw workspace:
+
+```bash
+cp -r skills/stream-vision ~/.openclaw/workspace/skills/
+```
+
+Then your claw can use the stream vision capabilities through the skill interface.
+
+## 🔧 Configuration Options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCREENSHOT_INTERVAL_MS` | 5000 | How often to capture screenshots |
+| `SCREENSHOT_WIDTH` | 1280 | Screenshot width in pixels |
+| `SCREENSHOT_HEIGHT` | 720 | Screenshot height in pixels |
+| `SCREENSHOT_FORMAT` | png | Image format (png, jpg, webp) |
+| `SCREENSHOT_QUALITY` | 80 | Compression quality (0-100) |
+| `VISION_SERVER_PORT` | 3847 | WebSocket/HTTP server port |
+
+## 🤖 Example Claws
+
+### Simple Watcher
+```bash
+npx tsx examples/simple-claw.ts
+```
+
+### Vision Analyzer
+```bash
+npx tsx examples/vision-analyzer-claw.ts
+```
+
+## 📋 Day-of Setup Checklist
+
+- [ ] OBS installed and configured
+- [ ] Stream scene ready in OBS
+- [ ] OBS WebSocket enabled (Tools → WebSocket Server Settings)
+- [ ] Twitch channel created/ready
+- [ ] Bot account OAuth token obtained
+- [ ] `.env` configured with all credentials
+- [ ] Vision server tested locally
+- [ ] Network accessible to claw machines (firewall, port forwarding if needed)
+- [ ] Test claw connection from another machine
+
+## 🔒 Security Notes
+
+- The Vision Server should run on a trusted machine
+- Consider using a VPN or Tailscale for connecting claws over the internet
+- The Twitch OAuth token has chat permissions - keep it secure
+- OBS WebSocket password should be strong
+
+## 🐛 Troubleshooting
+
+**OBS connection failed:**
+- Check OBS is running with WebSocket enabled
+- Verify the port and password in `.env`
+- Ensure OBS WebSocket plugin is up to date
+
+**Twitch chat not working:**
+- Verify OAuth token is valid
+- Check bot username matches the token's account
+- Ensure channel name doesn't include `#`
+
+**Claws not receiving frames:**
+- Check WebSocket connection status
+- Verify network connectivity
+- Look for errors in server logs
+
+## 📜 License
+
+MIT
+
+## 🙏 Credits
+
+- [OpenClaw](https://github.com/openclaw/openclaw) - The AI agent framework
+- [Claw Con](https://www.claw-con.com/) - The convention bringing claws together
+- [tmi.js](https://tmijs.com/) - Twitch chat integration
+- [obs-websocket-js](https://github.com/obs-websocket-community-projects/obs-websocket-js) - OBS control

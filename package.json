@@ -1,0 +1,46 @@
+{
+  "name": "claw-stream-vision",
+  "version": "1.0.0",
+  "description": "Enable OpenClaw agents to see and participate in Twitch streams for Claw Con",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/",
+    "test": "vitest"
+  },
+  "keywords": [
+    "openclaw",
+    "twitch",
+    "obs",
+    "ai-agents",
+    "claw-con"
+  ],
+  "author": "Avery Jennings",
+  "license": "MIT",
+  "dependencies": {
+    "obs-websocket-js": "^5.0.6",
+    "tmi.js": "^1.8.5",
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/tmi.js": "^1.8.6",
+    "@types/ws": "^8.5.12",
+    "@types/express": "^4.17.21",
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
