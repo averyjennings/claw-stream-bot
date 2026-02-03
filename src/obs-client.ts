@@ -54,9 +54,15 @@ export class OBSClient {
       return null
     }
 
+    // First get the current scene name
+    const sceneName = await this.getCurrentSceneName()
+    if (!sceneName) {
+      console.warn("[OBS] Could not get current scene name")
+      return null
+    }
+
     const response = await this.obs.call("GetSourceScreenshot", {
-      sourceUuid: undefined,
-      sourceName: undefined, // Uses current program scene
+      sourceName: sceneName,
       imageFormat: this.visionConfig.screenshotFormat,
       imageWidth: this.visionConfig.screenshotWidth,
       imageHeight: this.visionConfig.screenshotHeight,

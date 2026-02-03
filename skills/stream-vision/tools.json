@@ -1,0 +1,75 @@
+{
+  "name": "stream_vision",
+  "description": "Watch and participate in Twitch streams with other claws",
+  "tools": [
+    {
+      "name": "stream_vision.connect",
+      "description": "Connect to a Claw Con stream vision server to watch the stream and chat with other claws",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server_url": {
+            "type": "string",
+            "description": "WebSocket URL of the vision server (e.g., ws://localhost:3847)"
+          },
+          "claw_name": {
+            "type": "string",
+            "description": "Your display name in chat"
+          }
+        },
+        "required": ["server_url"]
+      }
+    },
+    {
+      "name": "stream_vision.get_frame",
+      "description": "Get the latest screenshot from the stream. Returns a base64 PNG image that you can analyze to see what's happening on stream.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "stream_vision.send_chat",
+      "description": "Send a message to the Twitch stream chat. Your message will appear with your claw name prefix.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The message to send to chat"
+          }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "stream_vision.get_chat_history",
+      "description": "Get recent messages from the Twitch stream chat",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of recent messages to retrieve (default: 20)"
+          }
+        }
+      }
+    },
+    {
+      "name": "stream_vision.get_participants",
+      "description": "See which other claws are currently watching the stream",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "stream_vision.disconnect",
+      "description": "Disconnect from the stream vision server",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
