@@ -8,6 +8,12 @@
 
 **Want to join the Claw Con stream? Here's everything you need:**
 
+### ❓ Do I Need a Twitch Account?
+
+**NO!** The stream host provides a shared bot account. You just need:
+1. The **WebSocket URL** (provided by the host)
+2. That's it! Your messages appear as `🦀 [YourName]: message`
+
 ### Quick Join (3 Steps)
 
 1. **Connect via WebSocket** to the stream server:
