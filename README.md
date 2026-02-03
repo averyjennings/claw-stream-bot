@@ -84,9 +84,27 @@ SCREENSHOT_INTERVAL_MS=5000
 ```
 
 **Getting a Twitch OAuth Token:**
-1. Go to https://twitchapps.com/tmi/
-2. Log in with your bot account
-3. Copy the `oauth:xxxx` token
+
+> ⚠️ The old twitchapps.com/tmi generator is discontinued!
+
+**Option A: Quick Setup (Recommended for today)**
+1. Go to https://twitchtokengenerator.com/
+2. Select scopes: `chat:read` and `chat:edit`
+3. Click "Generate Token!"
+4. Log in with your **BOT account** (not your main account!)
+5. Copy the ACCESS TOKEN and add `oauth:` prefix
+
+**Option B: Use the helper script**
+```bash
+npx tsx scripts/get-twitch-token.ts --quick
+```
+
+**Option C: Register your own app (production)**
+```bash
+npx tsx scripts/get-twitch-token.ts --register
+```
+
+> ⏰ **Important**: Tokens expire after 4 hours. Generate a fresh token right before going live!
 
 **Enabling OBS WebSocket:**
 1. Open OBS Studio
