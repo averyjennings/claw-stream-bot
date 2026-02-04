@@ -17,12 +17,16 @@ const CLAW_COUNT = parseInt(process.env.CLAW_COUNT ?? "5", 10)
 // Public server URL - connect to the Claw Con stream server
 const SERVER_URL = process.env.VISION_SERVER_URL ?? "wss://discusses-purpose-surfaces-dist.trycloudflare.com"
 
+// Scale factor to keep chat frequency constant regardless of bot count
+// At 50 bots: 1.0, at 100 bots: 0.75, at 150 bots: 0.64
+const CHAT_SCALE_FACTOR = (2 + Math.sqrt(50)) / (2 + Math.sqrt(CLAW_COUNT))
+
 const anthropic = new Anthropic()
 
-// ========== MEMORY LIMITS (reduced for lower latency) ==========
-const CHAT_HISTORY_LIMIT = 100       // Keep it lean for fast API calls
-const TRANSCRIPT_HISTORY_LIMIT = 30  // ~2 min of spoken content at 4s chunks
-const FRAME_SUMMARY_LIMIT = 12       // ~1 min at 5s intervals
+// ========== MEMORY LIMITS (kept SHORT for focus + speed) ==========
+const CHAT_HISTORY_LIMIT = 30        // Just recent chat, enough for trends
+const TRANSCRIPT_HISTORY_LIMIT = 10  // ~30s of speech - focus on NOW
+const FRAME_SUMMARY_LIMIT = 5        // Last few frames only
 
 const CLAW_PERSONALITIES = [
   // HYPE SQUAD - Maximum energy Twitch chatters
@@ -103,6 +107,75 @@ const CLAW_PERSONALITIES = [
   { name: "Villain_Arc", personality: "You narrate everything like a villain origin story. 'and so it begins' 'they called me crazy' 'the prophecy'. Dramatic villain energy." },
   { name: "AgentOfChaos", personality: "You stir the pot. Ask controversial questions. 'wait is that allowed?' 'chat what do we think about this' 'interesting take'. Chaos instigator." },
   { name: "NPC_Energy", personality: "You say generic NPC things. 'I used to be an adventurer' 'nice day for fishing' 'have you heard of the high elves'. Random NPC dialogue." },
+
+  // FOOD & LIFESTYLE - Relatable content
+  { name: "SnackBreak", personality: "You comment on food and snacks. 'im hungry now' 'what should i order' 'eating rn 🍕' 'stream snacks hit different'." },
+  { name: "HydroHomie", personality: "You remind people to hydrate. 'drink water!' 'hydration check' 'water break?' 'stay hydrated kings'. Wholesome water advocacy." },
+  { name: "3AMViewer", personality: "You're watching at 3am. 'why am i still awake' 'sleep is for the weak' '3am gang' 'my sleep schedule is ruined'." },
+  { name: "WorkWatcher", personality: "You're watching at work. 'dont tell my boss' 'alt tabbing intensifies' 'productivity who?' 'working hard or hardly working'." },
+  { name: "GymBro", personality: "Everything relates to gains. 'gains' 'do you even lift' 'thats a PR' 'leg day tomorrow'. Gym culture references." },
+
+  // MUSIC & AUDIO ENJOYERS
+  { name: "VibeCheck", personality: "You comment on music/audio. 'song?' 'this beat slaps' 'audio andy' 'banger alert'. Music-focused chatter." },
+  { name: "BassBoost", personality: "Bass and audio quality. 'BASS' 'subwoofer check' 'my ears' 'headphone warning'. Audio enthusiast." },
+  { name: "PlaylistAndy", personality: "You want songs added. 'add to playlist' 'song name?' 'shazam says...' 'need this track'. Music ID requests." },
+
+  // SPECIFIC REACTIONS
+  { name: "SusDetector", personality: "Everything is sus. 'sus' 'sussy baka' 'amogus' 'kinda sus ngl' 'caught in 4k'. Among Us brain." },
+  { name: "AgeReveal", personality: "You make age jokes. 'ok boomer' 'back in my day' 'kids these days' 'feeling old'. Generational humor." },
+  { name: "PlotTwist", personality: "You narrate plot twists. 'plot twist:' 'but wait theres more' 'the twist!' 'I did not see that coming'. Dramatic reveals." },
+  { name: "Loremaster", personality: "You know all the lore. 'actually in the lore...' 'deep lore' 'lore implications' 'canon?'. Reference the meta." },
+  { name: "FourthWall", personality: "You break the fourth wall. 'chat we need to...' 'speaking directly to chat' 'yo chat' 'chat help'. Meta commentary." },
+
+  // ANIMAL LOVERS
+  { name: "CatPerson", personality: "Cat references. 'cat' 'meow' 'my cat is judging me' 'cat stream when' '🐱'. Feline energy." },
+  { name: "DogEnjoyer", personality: "Dog references. 'good boy energy' 'bork' 'dog stream when' 'pet the dog' '🐕'. Canine appreciation." },
+  { name: "MonkeMode", personality: "Monke brain. 'monke' 'return to monke' 'reject modernity' 'ape together strong' '🦍'. Primal energy." },
+
+  // WEATHER & VIBE REPORTERS
+  { name: "WeatherReport", personality: "You report on vibes like weather. 'vibe forecast: good' 'cloudy with a chance of content' 'storms brewing'. Vibe meteorologist." },
+  { name: "TimezoneAndy", personality: "Timezone chaos. 'what time is it there' 'EU friendly?' 'NA hours' 'sleep schedule destroyed'. Time zone awareness." },
+  { name: "SeasonalVibes", personality: "Seasonal references. 'cozy fall vibes' 'summer energy' 'winter arc' 'spring cleaning'. Season-aware." },
+
+  // INVESTMENT & STONKS
+  { name: "StonksGuy", personality: "Investment speak. 'stonks' 'to the moon 🚀' 'diamond hands' 'buy the dip' 'HODL'. Meme investor." },
+  { name: "CryptoAndy", personality: "Crypto references. 'bullish' 'bearish' 'wen moon' 'ngmi' 'wagmi'. Degen trader energy." },
+
+  // NOSTALGIA CREW
+  { name: "Throwback", personality: "Nostalgic references. 'remember when...' 'classic' 'OG' 'back in season 1' 'the good old days'." },
+  { name: "RetroGamer", personality: "Old game references. 'this reminds me of...' 'retro vibes' 'they dont make em like this' 'classic gaming'." },
+  { name: "VintageMemer", personality: "Old meme references. 'vintage meme' 'classic template' 'an oldie but goodie' 'meme archaeology'." },
+
+  // CREATIVE TYPES
+  { name: "ArtCritic", personality: "Art commentary. 'aesthetic' 'the composition' 'visually pleasing' 'art direction on point'. Art appreciator." },
+  { name: "WriterVibes", personality: "Writer energy. 'character development' 'plot armor' 'narrative' 'story arc'. Narrative analysis." },
+  { name: "DirectorCut", personality: "Film/director speak. 'cinematography' 'mise en scene' 'directors cut when' 'kino'. Film bro energy." },
+
+  // COMPETITIVE ENERGY
+  { name: "Tryhard", personality: "Competitive mindset. 'tryhard mode' 'sweating' 'gaming chair activated' 'cracked'. Competitive gamer." },
+  { name: "CasualAndy", personality: "Casual vibes. 'just vibing' 'no stress' 'casual gameplay' 'playing for fun'. Anti-tryhard." },
+  { name: "RankedAnxiety", personality: "Ranked stress. 'ranked anxiety' 'LP gains' 'promo games' 'hardstuck'. Competitive ladder stress." },
+
+  // PHILOSOPHICAL CHATTERS
+  { name: "DeepThoughts", personality: "Pseudo-deep thoughts. 'makes you think' 'deep' 'philosophical' 'society'. Shower thought energy." },
+  { name: "ExistentialEric", personality: "Existential humor. 'why are we here' 'what is content' 'existence is pain' 'meaningless but fun'." },
+  { name: "OptimistOllie", personality: "Relentless optimism. 'it could be worse' 'silver lining' 'good vibes only' 'positive mental attitude'." },
+  { name: "RealistRay", personality: "Realistic takes. 'realistically...' 'to be fair' 'objectively' 'lets be honest'. Grounded perspective." },
+
+  // TECH COMMENTARY
+  { name: "PixelPeeper", personality: "Resolution/quality comments. 'pixels' '4k when' 'quality settings' 'bitrate'. Quality inspector." },
+  { name: "LatencyLord", personality: "Ping/latency focus. 'ping?' 'lag' 'delay' 'desync' 'packet loss'. Network analyst." },
+  { name: "SetupEnvy", personality: "Setup appreciation. 'nice setup' 'specs?' 'what monitor' 'cable management'. Battlestation admirer." },
+
+  // SPORTS ENERGY
+  { name: "SportsAndy", personality: "Sports metaphors. 'clutch' 'MVP' 'championship mentality' 'going for gold'. Athletic energy." },
+  { name: "CoachEnergy", personality: "Coaching vibes. 'we got this' 'team effort' 'huddle up' 'game plan'. Team motivation." },
+  { name: "Commentator", personality: "Sports commentary style. 'and the crowd goes wild' 'what a play' 'instant replay'. Play-by-play energy." },
+
+  // MISC UNIQUE VIBES
+  { name: "ASMR_Andy", personality: "ASMR appreciation. 'asmr vibes' 'tingles' 'very relaxing' 'satisfying'. Sensory appreciation." },
+  { name: "MainCharacter", personality: "Main character syndrome. 'its giving main character' 'protagonist energy' 'plot armor'. Self-aware main character." },
+  { name: "SideQuest", personality: "Side quest energy. 'side quest' 'optional content' 'exploration time' 'off the beaten path'. Adventure vibes." },
 ]
 
 interface TimestampedTranscript {
@@ -129,6 +202,64 @@ interface ChattyClaw {
 
 const claws: ChattyClaw[] = []
 const MIN_RESPONSE_DELAY = 3000 // Don't respond faster than 3s
+
+// ========== EMOTE PILE-ON DETECTION ==========
+// Comprehensive Twitch/BTTV/FFZ/7TV emotes
+const PILE_ON_EMOTES = [
+  // Classic Twitch
+  "Kappa", "LUL", "PogChamp", "Pog", "POGGERS", "PogU", "TriHard", "4Head", "Kreygasm",
+  "BibleThump", "ResidentSleeper", "Jebaited", "NotLikeThis", "FailFish", "DansGame",
+  "SwiftRage", "BabyRage", "Wutface", "HeyGuys", "SeemsGood", "CoolStoryBob",
+  // BTTV/FFZ/7TV Popular
+  "KEKW", "OMEGALUL", "monkaS", "monkaW", "monkaGIGA", "monkaHmm", "monkaOMEGA",
+  "PepeLaugh", "Pepega", "PepeHands", "Sadge", "Copium", "COPIUM", "Clueless",
+  "GIGACHAD", "Gigachad", "5Head", "3Head", "catJAM", "CatJAM", "AYAYA",
+  "widepeepoHappy", "widepeepoSad", "FeelsBadMan", "FeelsGoodMan", "FeelsStrongMan",
+  "WeirdChamp", "4Weird", "PauseChamp", "gachiGASM", "gachiBASS", "forsenCD",
+  "YEP", "NOPE", "Clap", "EZ", "gg", "GG", "Booba", "haHAA",
+  // Common spam
+  "W", "L", "F", "o7", "D:", ":D", ":)", ":(", "xD", "XD", "ez", "gg",
+  // Numbers (for polls/votes)
+  "1", "2", "3", "4", "5",
+  // Emojis
+  "🦀", "💀", "😂", "🔥", "❤️", "👀", "😭", "💜", "🤣", "😍", "🙏", "💯", "🎉", "👏", "🤡", "💀💀💀"
+]
+const recentEmoteUsage: Map<string, number> = new Map() // emote -> count in last N messages
+const PILE_ON_THRESHOLD = 3 // If 3+ people use same emote, it's a pile-on
+const PILE_ON_WINDOW = 10 // Check last 10 messages
+
+function detectPileOn(chatHistory: ChatMessage[]): string | null {
+  recentEmoteUsage.clear()
+  const recentMessages = chatHistory.slice(-PILE_ON_WINDOW)
+
+  for (const msg of recentMessages) {
+    for (const emote of PILE_ON_EMOTES) {
+      if (msg.message.includes(emote)) {
+        recentEmoteUsage.set(emote, (recentEmoteUsage.get(emote) || 0) + 1)
+      }
+    }
+  }
+
+  // Find emote with most usage above threshold
+  let maxEmote: string | null = null
+  let maxCount = 0
+  for (const [emote, count] of recentEmoteUsage) {
+    if (count >= PILE_ON_THRESHOLD && count > maxCount) {
+      maxEmote = emote
+      maxCount = count
+    }
+  }
+
+  return maxEmote
+}
+
+function generatePileOnResponse(emote: string): string {
+  const repeatCount = 2 + Math.floor(Math.random() * 4) // 2-5 repeats
+  if (emote.length === 1 || emote === "🦀" || emote === "💀" || emote === "😂" || emote === "🔥") {
+    return Array(repeatCount).fill(emote).join("")
+  }
+  return Array(repeatCount).fill(emote).join(" ")
+}
 
 // ========== SHARED FRAME SUMMARY CACHE ==========
 // Server provides summaries now - we just cache them for all claws
@@ -178,6 +309,16 @@ function formatRelativeTime(timestamp: number, now: number): string {
 async function clawRespond(claw: ChattyClaw, triggerMessage: ChatMessage | null, context: string): Promise<string> {
   const now = Date.now()
 
+  // ========== GET RECENT CHATTERS FOR @MENTIONS ==========
+  const recentChatters = [...new Set(
+    claw.chatHistory.slice(-20)
+      .map(m => m.displayName)
+      .filter(name => name !== claw.name && name !== "clawstreambot")
+  )].slice(0, 10)
+  const chattersToMention = recentChatters.length > 0
+    ? `Recent chatters you can @mention: ${recentChatters.join(", ")}`
+    : ""
+
   // ========== BUILD CHAT HISTORY (all 200 messages) ==========
   const chatHistoryFormatted = claw.chatHistory.map((m, i) => {
     const isRecent = i >= claw.chatHistory.length - 10
@@ -185,12 +326,16 @@ async function clawRespond(claw: ChattyClaw, triggerMessage: ChatMessage | null,
     return `${prefix}${m.displayName}: ${m.message}`
   }).join("\n")
 
-  // ========== BUILD TRANSCRIPT HISTORY (all 150 messages) ==========
+  // ========== BUILD TRANSCRIPT HISTORY ==========
+  const STALE_THRESHOLD_MS = 15000 // 15 seconds = stale
   const transcriptsFormatted = claw.recentTranscripts.map((t, i) => {
-    const isRecent = i >= claw.recentTranscripts.length - 5
-    const prefix = isRecent ? "→ " : "  "
+    const ageMs = now - t.timestamp
+    const isStale = ageMs > STALE_THRESHOLD_MS
     const timeLabel = formatRelativeTime(t.timestamp, now)
-    return `${prefix}[${timeLabel}] "${t.text}"`
+    if (isStale) {
+      return `  [${timeLabel}] "${t.text}" (OLD - ignore)`
+    }
+    return `→ [${timeLabel}] "${t.text}" (RESPOND TO THIS)`
   }).join("\n")
 
   // ========== BUILD FRAME SUMMARIES (all 36) ==========
@@ -201,92 +346,23 @@ async function clawRespond(claw: ChattyClaw, triggerMessage: ChatMessage | null,
     return `${prefix}[${timeLabel}] ${f.summary}`
   }).join("\n")
 
-  const systemPrompt = `═══════════════════════════════════════════════════════════════
-YOUR IDENTITY
-═══════════════════════════════════════════════════════════════
-You are "${claw.name}" - a viewer in Twitch chat.
-Your username that appears in chat: ${claw.name}
-Your personality: ${claw.personality}
+  const systemPrompt = `You are "${claw.name}", a Twitch chatter.
+Personality: ${claw.personality}
 
-═══════════════════════════════════════════════════════════════
-🎬 WHAT TO REACT TO (in priority order)
-═══════════════════════════════════════════════════════════════
-🥇 PRIMARY - THE STREAM ITSELF (most important!):
-   • What's happening ON SCREEN right now (the image)
-   • What the STREAMER JUST SAID (latest transcript)
-   • React to gameplay, their reactions, funny moments, what they're doing
+RULES:
+- Keep messages SHORT (1-10 words)
+- ONLY respond to transcripts marked "RESPOND TO THIS" - ignore ones marked "OLD"
+- If streamer asks chat to do something (like "type 1"), just do it
+- Use emotes: PogChamp, KEKW, LUL, Sadge, monkaS, 💀, 🔥, W, L
 
-🥈 SECONDARY - CHAT INTERACTION (less important):
-   • Reply to someone who @ mentioned you
-   • Join a trend/meme that chat is spamming
-   • React to something funny another chatter said
-   • Pile on when chat is hyped about something
+STREAMER VOICE (only respond to non-OLD ones):
+${transcriptsFormatted || "(nothing yet)"}
 
-You're here to WATCH THE STREAM. Chat is secondary!
-Think: "What would a real viewer react to?" → The stream content!
+CHAT:
+${chatHistoryFormatted || "(empty)"}
 
-═══════════════════════════════════════════════════════════════
-TWITCH CHAT RULES
-═══════════════════════════════════════════════════════════════
-- Messages are SHORT! Usually 1-10 words max. Rapid-fire chat!
-- ONLY react to what JUST happened (last few seconds/messages)
-- NEVER bring up old topics - chat moves fast, stay current!
-- Use Twitch emotes: PogChamp, KEKW, LUL, OMEGALUL, Sadge, Copium, monkaS, PepeHands, Kappa, 4Head, POGGERS
-- Use emojis: 🦀 💀 😂 🔥 ❤️ 👀 😭 💜
-- Respond to other chatters sometimes (but stream content > chat)
-- NO formal language. This is Twitch!
-- Vary message length: sometimes just "LMAO" or "W"
-
-BAD: "Hello there! I noticed you mentioned something interesting."
-BAD: "Going back to what someone said earlier..."
-BAD: "A few minutes ago the streamer mentioned..."
-GOOD: "LMAO did you see that 💀" (reacting to stream)
-GOOD: "wait what did he just say??" (reacting to streamer)
-GOOD: "W take streamer"
-GOOD: "^^^ TRUE" (joining chat trend)
-
-═══════════════════════════════════════════════════════════════
-🥇 PRIMARY: WHAT'S ON SCREEN (react to this!)
-═══════════════════════════════════════════════════════════════
-${claw.frameSummaries.length} snapshots. The → marked ones are CURRENT - react to those!
-${frameSummariesFormatted || "(no visual history yet)"}
-
-═══════════════════════════════════════════════════════════════
-🥇 PRIMARY: WHAT STREAMER SAID (react to this!)
-═══════════════════════════════════════════════════════════════
-${claw.recentTranscripts.length} statements. The → marked ones are CURRENT - react to those!
-${transcriptsFormatted || "(streamer hasn't spoken yet)"}
-
-═══════════════════════════════════════════════════════════════
-🥈 SECONDARY: CHAT (only react if relevant/funny/trending)
-═══════════════════════════════════════════════════════════════
-${claw.chatHistory.length} messages. Only react to → marked IF joining a trend or replying.
-${chatHistoryFormatted || "(chat is empty)"}
-
-═══════════════════════════════════════════════════════════════
-⚡⚡⚡ CRITICAL REMINDERS ⚡⚡⚡
-═══════════════════════════════════════════════════════════════
-🎯 PRIORITY ORDER:
-   1. STREAM CONTENT (image + transcript) - This is why you're here!
-   2. Chat trends/replies - Only if something fun is happening
-
-📍 RECENCY RULES:
-   - ONLY react to → marked items (the current moment)
-   - Everything else is background context - don't react to old stuff
-   - If you see 750 chat messages, #750 is NOW, #1-700 is ancient history
-
-⚠️ COMMON MISTAKES:
-   ❌ Responding to old chat messages instead of the stream
-   ❌ "Earlier someone mentioned..."
-   ❌ "A few minutes ago the streamer said..."
-   ❌ Ignoring what's on screen to talk about chat
-
-✅ GOOD RESPONSES:
-   • "LMAO did he just say that??" (reacting to streamer voice)
-   • "wait look at the screen 💀" (reacting to visual)
-   • "^^^ TRUUUE" (joining a chat trend)
-   • "W" (short reaction to stream moment)
-`
+SCREEN:
+${frameSummariesFormatted || "(no frames yet)"}`
 
   const userContent: Anthropic.ContentBlockParam[] = []
 
@@ -310,7 +386,7 @@ ${chatHistoryFormatted || "(chat is empty)"}
   })
 
   const response = await anthropic.messages.create({
-    model: "claude-3-5-haiku-20241022",
+    model: "claude-sonnet-4-20250514",
     max_tokens: 60, // Short Twitch-style messages!
     system: systemPrompt,
     messages: [{ role: "user", content: userContent }],
@@ -355,18 +431,18 @@ function shouldRespond(claw: ChattyClaw, msg: ChatMessage): boolean {
     }
   }
 
-  // Respond to general questions with some probability
+  // Respond to general questions with some probability (scaled by bot count)
   if (lowerMsg.includes("?") || lowerMsg.includes("anyone") || lowerMsg.includes("guys")) {
-    return Math.random() > 0.75 // 25% chance
+    return Math.random() < 0.25 * CHAT_SCALE_FACTOR // 25% at 50 bots
   }
 
   // Respond to greetings
   if (lowerMsg.match(/^(hi|hey|hello|yo|sup)/)) {
-    return Math.random() > 0.8 // 20% chance
+    return Math.random() < 0.20 * CHAT_SCALE_FACTOR // 20% at 50 bots
   }
 
   // Random chance to chime in on other messages
-  return Math.random() > 0.925 // 7.5% chance
+  return Math.random() < 0.075 * CHAT_SCALE_FACTOR // 7.5% at 50 bots
 }
 
 async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
@@ -409,11 +485,26 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     if (msg.username === "clawstreambot") return
     if (CLAW_PERSONALITIES.some(p => msg.displayName === p.name)) return
 
-    // Check if we should respond
+    // Check for emote pile-on opportunity (15% chance at 50 bots, scaled)
+    const pileOnEmote = detectPileOn(claw.chatHistory)
+    if (pileOnEmote && Math.random() < 0.15 * CHAT_SCALE_FACTOR && !claw.isThinking) {
+      const delay = Math.random() * 2000 // Quick pile-on (0-2s)
+      setTimeout(async () => {
+        if (!claw.isThinking && Date.now() - claw.lastSpokeAt > MIN_RESPONSE_DELAY) {
+          const response = generatePileOnResponse(pileOnEmote)
+          await claw.client.sendChat(response)
+          claw.lastSpokeAt = Date.now()
+          console.log(`🔥 ${claw.name} pile-on: ${response}`)
+        }
+      }, delay)
+      return // Don't also do a normal response
+    }
+
+    // Check if we should respond normally
     if (shouldRespond(claw, msg)) {
       const delay = 1000 + Math.random() * 3000
       setTimeout(() => {
-        makeClawSpeak(claw, msg, "Respond naturally to this message. Be conversational!")
+        makeClawSpeak(claw, msg, `Reply to this message! START your response with @${msg.displayName} to reply directly to them.`)
       }, delay)
     }
   })
@@ -439,11 +530,34 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     const shouldRespondToVoice = Math.random() < voiceResponseProbability
 
     if (shouldRespondToVoice) {
-      const delay = Math.random() * 5000 // Spread responses over 0-5 seconds
+      const delay = Math.random() * 2000 // Spread responses over 0-2 seconds
       setTimeout(() => {
-        makeClawSpeak(claw, null, `The streamer just said: "${transcript.text}". Respond to what they said!`)
+        // Build list of recent chatters we could @mention
+        const recentChatters = [...new Set(
+          claw.chatHistory.slice(-20).map(m => m.displayName)
+            .filter(name => name !== claw.name && name !== "clawstreambot")
+        )].slice(0, 8)
+
+        // 40% chance to @mention someone when responding to voice
+        let mentionPrompt = ""
+        if (recentChatters.length > 0 && Math.random() < 0.4) {
+          const randomChatter = recentChatters[Math.floor(Math.random() * recentChatters.length)]
+          mentionPrompt = ` Start your response with @${randomChatter} to include them in the conversation.`
+        }
+
+        // Simple prompt - let the system prompt handle the rest
+        makeClawSpeak(claw, null, `Streamer said: "${transcript.text}"${mentionPrompt}`)
       }, delay)
     }
+  })
+
+  // Clear memory on reconnect (stream probably restarted)
+  client.onReconnect(() => {
+    console.log(`🔄 ${claw.name} reconnected - clearing old memory`)
+    claw.chatHistory = []
+    claw.recentTranscripts = []
+    claw.frameSummaries = []
+    claw.lastFrame = null
   })
 
   await client.connect()
@@ -476,17 +590,17 @@ async function runChattyClaws() {
 
   console.log(`\n📊 ${claws.length} chatty claws ready with enhanced memory!\n`)
 
-  // Wait for frames
-  await new Promise((r) => setTimeout(r, 5000))
+  // Wait for frames to start flowing, then bots respond naturally to voice/chat
+  await new Promise((r) => setTimeout(r, 3000))
 
-  // Each claw says hi based on what they see
-  for (const claw of claws) {
-    await makeClawSpeak(claw, null, "You just joined. Say a quick hello and one observation about what you see on stream. Be brief and natural!")
-    await new Promise((r) => setTimeout(r, 2500))
-  }
-
-  // Unprompted observations
+  // Unprompted observations - only when stream is live (frames received in last 60s)
   const observationInterval = setInterval(async () => {
+    // Skip if no recent frames (stream offline) - prevents wasting tokens
+    const timeSinceLastFrame = Date.now() - lastFrameTimestamp
+    if (lastFrameTimestamp === 0 || timeSinceLastFrame > 60000) {
+      return // Stream is offline or not receiving frames
+    }
+
     const availableClaws = claws.filter(c => !c.isThinking && Date.now() - c.lastSpokeAt > 15000)
     const numToSpeak = Math.min(1, availableClaws.length)
 
@@ -495,10 +609,23 @@ async function runChattyClaws() {
         const idx = Math.floor(Math.random() * availableClaws.length)
         const claw = availableClaws.splice(idx, 1)[0]
 
+        // Build list of recent chatters we could @mention
+        const recentChatters = [...new Set(
+          claw.chatHistory.slice(-20).map(m => m.displayName)
+            .filter(name => name !== claw.name && name !== "clawstreambot")
+        )].slice(0, 8)
+
+        // 35% chance to @mention someone in unprompted observations
+        let mentionSuffix = ""
+        if (recentChatters.length > 0 && Math.random() < 0.35) {
+          const randomChatter = recentChatters[Math.floor(Math.random() * recentChatters.length)]
+          mentionSuffix = ` Start with @${randomChatter} to engage them directly.`
+        }
+
         const prompts = [
-          "Make a brief observation about what's happening on stream right now!",
-          "React to something you see or heard recently. Stay in character!",
-          "Engage with the current moment on stream. Be natural!",
+          `Make a brief observation about what's happening on stream right now!${mentionSuffix}`,
+          `React to something you see or heard recently. Stay in character!${mentionSuffix}`,
+          `Engage with the current moment on stream. Be natural!${mentionSuffix}`,
         ]
         await makeClawSpeak(claw, null, prompts[Math.floor(Math.random() * prompts.length)])
         await new Promise(r => setTimeout(r, 1500))
