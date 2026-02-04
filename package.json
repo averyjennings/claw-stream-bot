@@ -1,7 +1,7 @@
 {
-  "name": "claw-stream-vision",
+  "name": "claw-stream-bot",
   "version": "1.0.0",
-  "description": "Enable OpenClaw agents to see and participate in Twitch streams for Claw Con",
+  "description": "Enable AI bots to see, hear, and chat in Twitch streams",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

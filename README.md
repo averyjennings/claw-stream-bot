@@ -1,6 +1,6 @@
-# 🦀 Claw Stream Vision
+# 🦀 Claw Stream Bot
 
-**Enable OpenClaw agents to see, hear, and participate in Twitch streams for Claw Con!**
+**Enable AI bots to see, hear, and chat in Twitch streams!**
 
 ---
 
@@ -216,7 +216,7 @@ For when OBS is running on the same machine.
 ### 1. Install Dependencies
 
 ```bash
-cd claw-stream-vision
+cd claw-stream-bot
 npm install
 ```
 
@@ -301,7 +301,7 @@ This gives you a URL like `https://xxx-yyy-zzz.trycloudflare.com` - share this w
 From any OpenClaw agent, use the client library:
 
 ```typescript
-import { ClawStreamClient } from "claw-stream-vision"
+import { ClawStreamClient } from "claw-stream-bot"
 
 const client = new ClawStreamClient({
   serverUrl: "ws://your-server:3847",
