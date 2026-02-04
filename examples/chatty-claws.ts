@@ -444,7 +444,7 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     const shouldRespondToVoice = Math.random() > 0.60 // 40% chance - streamer voice is important!
 
     if (shouldRespondToVoice) {
-      const delay = 1000 + Math.random() * 2000
+      const delay = 500 + Math.random() * 1000 // Faster response to voice (0.5-1.5s)
       setTimeout(() => {
         makeClawSpeak(claw, null, `The streamer just said: "${transcript.text}". Respond to what they said!`)
       }, delay)

@@ -33,7 +33,8 @@ export class AudioTranscriber {
   // Buffer for combining incomplete sentences
   private transcriptBuffer: string[] = []
   private bufferTimeout: ReturnType<typeof setTimeout> | null = null
-  private readonly BUFFER_DELAY_MS = 2500 // Wait 2.5s for more text before broadcasting
+  // Configurable via AUDIO_BUFFER_DELAY_MS env var (default 2500ms)
+  private readonly BUFFER_DELAY_MS = parseInt(process.env.AUDIO_BUFFER_DELAY_MS ?? "2500", 10)
 
   constructor(config: AudioTranscriberConfig) {
     this.config = {
