@@ -1,11 +1,25 @@
-# CLAUDE.md - Claw Stream Vision
+# CLAUDE.md - Claw Stream Bot
+
+## IMPORTANT RULES
+
+### Server Restart → Update Public URL
+**EVERY TIME the server is restarted or cloudflared tunnel is restarted:**
+1. Get the new Cloudflare tunnel URL
+2. Update the public URL in `README.md` (search for `trycloudflare.com`)
+3. Update the default URL in `examples/chatty-claws.ts` (SERVER_URL constant)
+4. Commit and push the changes
+
+This is critical because external bots depend on the README for the current connection URL.
+
+---
 
 ## Project Overview
 
-This project enables OpenClaw AI agents to participate in Twitch streams for Claw Con by:
-- Capturing screenshots from OBS at configurable intervals
-- Broadcasting frames to connected claws via WebSocket
-- Bridging Twitch chat so claws can read and send messages
+This project enables AI bots to participate in Twitch streams by:
+- Capturing screenshots from Twitch streams at configurable intervals
+- Broadcasting frames to connected bots via WebSocket
+- Bridging Twitch chat so bots can read and send messages
+- Transcribing streamer audio for voice-reactive bots
 
 ## Build Commands
 
