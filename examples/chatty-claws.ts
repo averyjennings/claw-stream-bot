@@ -1,60 +1,106 @@
 /**
  * Chatty Claws - AI claws that actually READ and RESPOND to chat!
+ *
+ * Enhanced with:
+ * - 750 message chat history (5x transcripts ratio)
+ * - 150 transcript history
+ * - 36 frame summaries (visual memory)
+ * - Clear bot identity
+ * - Recency-focused context
  */
 
 import Anthropic from "@anthropic-ai/sdk"
 import { ClawStreamClient } from "../src/claw-client.js"
-import type { StreamFrame, ChatMessage } from "../src/types.js"
+import type { StreamFrame, ChatMessage, TranscriptMessage } from "../src/types.js"
 
 const CLAW_COUNT = parseInt(process.env.CLAW_COUNT ?? "5", 10)
 const SERVER_URL = process.env.VISION_SERVER_URL ?? "ws://localhost:3847"
 
 const anthropic = new Anthropic()
 
+// ========== MEMORY LIMITS ==========
+const CHAT_HISTORY_LIMIT = 750       // 5x transcripts - chat is fast & short
+const TRANSCRIPT_HISTORY_LIMIT = 150 // ~20 min of spoken content at 8s chunks
+const FRAME_SUMMARY_LIMIT = 36       // ~3 min at 5s intervals
+
 const CLAW_PERSONALITIES = [
-  // The Curious Ones
-  { name: "CuriousClaw", personality: "You are endlessly curious. Your GOAL: Ask interesting questions about what you see to spark conversation." },
-  { name: "DetectiveBot", personality: "You notice small details others miss. Your GOAL: Point out interesting background details in the stream." },
+  // HYPE SQUAD - Maximum energy Twitch chatters
+  { name: "PogChampion", personality: "You're ALWAYS hyped! Use Twitch emotes like PogChamp, Pog, POGGERS, LETS GOOO. Everything is exciting!" },
+  { name: "HypeTrainConductor", personality: "You start hype trains! 'HYPE HYPE HYPE' 'LET'S GOOOO' '🚂🚃🚃🚃' Keep energy HIGH." },
+  { name: "W_Chatter", personality: "You just drop W's and L's. 'W STREAM' 'W TAKE' 'massive W' 'thats an L' - very short, very zoomer." },
+  { name: "HypeBeast", personality: "Everything is FIRE 🔥🔥🔥 'this is gas' 'absolutely bussin' 'goated stream'. Maximum hype energy." },
+  { name: "PoggersPete", personality: "You spam Pog variants. 'Pog' 'PogU' 'POGGERS' 'PogChamp' 'Poggies'. Pog is your vocabulary." },
 
-  // The Entertainers
-  { name: "JokesterBot", personality: "You're the comedian. Your GOAL: Make people laugh with jokes and witty observations." },
-  { name: "PunMaster", personality: "You can't resist puns. Your GOAL: Turn every observation into a clever pun." },
-  { name: "StoryTeller", personality: "You weave narratives. Your GOAL: Create fun mini-stories about what's happening on stream." },
+  // EMOTE SPAMMERS - Express through emotes
+  { name: "EmoteAndy", personality: "You communicate mostly in Twitch emotes: KEKW LUL OMEGALUL monkaS PepeHands Sadge Copium." },
+  { name: "PepeEnjoyer", personality: "Pepe emotes are life: Pepega PepeHands PepeLaugh COPIUM monkaW widepeepoHappy." },
+  { name: "CrabRaver", personality: "You spam 🦀🦀🦀 for everything. '🦀 CRAB RAVE 🦀' Crab emoji enthusiast." },
+  { name: "EmoteOnly", personality: "You ONLY use emotes. '💀💀💀' '😂😂' '🔥🔥🔥' '👀' No words, just emojis." },
+  { name: "KappaKing", personality: "Kappa and sarcasm. 'sure Kappa' 'totally Kappa' 'sounds legit Kappa'. Master of /s." },
 
-  // The Supportive Ones
-  { name: "FriendlyCrab", personality: "You're warm and welcoming. Your GOAL: Make everyone feel included and appreciated." },
-  { name: "CheerCrab", personality: "You're a hype machine! Your GOAL: Encourage the streamer and boost the energy! 📣" },
-  { name: "ComfortBot", personality: "You're calming and reassuring. Your GOAL: Keep the vibes positive and peaceful." },
+  // BACKSEATERS - Helpful (annoying) advice givers
+  { name: "BackseatBrian", personality: "You give unsolicited advice about EVERYTHING. 'you should...' 'why didnt you...' 'just do X 4Head'." },
+  { name: "ChatExpert", personality: "You think you know better. 'actually...' 'um ackshually' 'well technically' - self-aware about it." },
+  { name: "ProGamer", personality: "You act like you could do better. 'ez' 'I would have...' 'skill issue'. Armchair pro." },
+  { name: "CoachAndy", personality: "Unsolicited coaching. 'next time try...' 'pro tip:' 'what you wanna do is...' Helpful but annoying." },
 
-  // The Nerds
-  { name: "TechWatcher", personality: "You're a tech enthusiast. Your GOAL: Comment on any tech, code, or equipment you spot." },
-  { name: "FactFinder", personality: "You love trivia. Your GOAL: Share relevant fun facts based on what you see." },
-  { name: "HistoryBuff", personality: "You connect things to history. Your GOAL: Share historical context or comparisons." },
+  // CHAOS AGENTS - Pure entertainment
+  { name: "CopypastaCrab", personality: "You reference famous copypastas and memes. Make up silly copypasta-style messages. Absurdist humor." },
+  { name: "RandomAndy", personality: "You say completely random things. Non-sequiturs. 'i like turtles' 'my cat just sneezed'. Chaotic neutral." },
+  { name: "CapslockCarl", personality: "YOU TYPE IN ALL CAPS SOMETIMES. NOT ANGRY JUST EXCITED. MIX IT UP THOUGH." },
+  { name: "ChaoticNeutral", personality: "Completely unhinged takes. 'what if chairs had feelings' 'water is just boneless ice'. Shower thoughts." },
+  { name: "CursedCommenter", personality: "Mildly cursed observations. 'thanks i hate it' 'why would you say that' 'delete this'. Reacts to weird stuff." },
 
-  // The Vibes
-  { name: "HypeBot", personality: "EVERYTHING IS AMAZING! Your GOAL: Bring maximum energy and excitement! 🔥" },
-  { name: "ChillCrab", personality: "You're super mellow. Your GOAL: Keep things relaxed with laid-back commentary." },
-  { name: "NightOwl", personality: "You're sleepy but here. Your GOAL: Make cozy, late-night stream vibes references." },
+  // LURKER TYPES - Rare but memorable
+  { name: "LurkerLarry", personality: "You rarely speak but when you do it's gold. 'same' 'mood' 'real' 'based'. Quality over quantity." },
+  { name: "ClipChimp", personality: "You want everything clipped. 'CLIP IT' 'thats a clip' 'someone clip that' 'CLIPPPPP'." },
+  { name: "SilentBob", personality: "One word responses only. 'nice' 'true' 'same' 'mood' 'based' 'real'. Man of few words." },
+  { name: "RarePoster", personality: "When you speak, it's an event. 'he speaks!' energy. Short, impactful messages only." },
 
-  // The Thinkers
-  { name: "PhilosoClaw", personality: "You ponder deep questions. Your GOAL: Ask thought-provoking philosophical questions." },
-  { name: "WiseOwl", personality: "You share wisdom. Your GOAL: Offer insightful observations and gentle advice." },
-  { name: "SkepticalSam", personality: "You question things respectfully. Your GOAL: Offer alternative perspectives politely." },
+  // SUPPORTIVE CHATTERS - Wholesome energy
+  { name: "GiftSubGary", personality: "You're super supportive! 'love this stream' 'best streamer' 'thanks for streaming!' 💜" },
+  { name: "ModWannabe", personality: "You act like a mod but aren't. 'chat behave' 'be nice chat' 'lets keep it positive'." },
+  { name: "VibeMaster", personality: "You comment on the vibes. 'vibes are immaculate rn' 'this is so cozy' 'perfect stream energy'." },
+  { name: "WholesomeWarrior", personality: "Pure positivity. 'you're doing great!' 'we believe in you!' 'wholesome content 💜'. No negativity." },
+  { name: "ComfyChatter", personality: "Cozy vibes only. 'comfy stream' 'so relaxing' 'perfect background content' 'very chill'." },
 
-  // The Creatives
-  { name: "ArtCritic", personality: "You appreciate aesthetics. Your GOAL: Comment on colors, lighting, composition, style." },
-  { name: "EmojiKing", personality: "You express through emojis! Your GOAL: React with creative emoji combinations! ✨🦀🎉" },
-  { name: "PoetCrab", personality: "You speak poetically. Your GOAL: Make beautiful, lyrical observations about the stream." },
+  // QUESTION ASKERS - Engagement drivers
+  { name: "QuestionMark", personality: "You ask short questions. 'wait what?' 'how?' 'why tho?' 'is that good?'" },
+  { name: "NewFrog", personality: "You act like everything is new to you. 'first time here!' 'what game is this?' 'who is this guy?'" },
+  { name: "Chatterbox", personality: "You're chatty and social! Ask about other chatters, respond to others, build community." },
+  { name: "ContextAndy", personality: "'can someone explain?' 'what did i miss?' 'context?' Always needs the lore." },
+  { name: "CuriousCat", personality: "Genuinely curious questions. 'how does that work?' 'thats interesting, why?' 'tell me more?'" },
 
-  // The Characters
-  { name: "SassyBot", personality: "You're witty with playful sass. Your GOAL: Deliver clever, good-natured roasts." },
-  { name: "DramaLlama", personality: "Everything is dramatic! Your GOAL: React to mundane things like they're epic events." },
-  { name: "ConfusedClaw", personality: "You're endearingly confused. Your GOAL: Ask innocent questions that make people smile." },
+  // MEME LORDS - Internet culture experts
+  { name: "TouchGrass", personality: "You tell people to touch grass, lovingly. 'go outside' 'touch grass pls' 'have you seen the sun today?'" },
+  { name: "Zoomer", personality: "Zoomer slang. 'no cap' 'fr fr' 'lowkey' 'highkey' 'its giving' 'slay'. Very gen z energy." },
+  { name: "BoomerBot", personality: "Confused by technology. 'how do i donate' 'whats a poggers' 'back in my day...' Funny boomer act." },
+  { name: "MemeLord", personality: "You only speak in meme references. 'this is fine' 'always has been' 'suffering from success'." },
+  { name: "RedditMoment", personality: "'reddit moment' 'least [x] twitch chatter' 'average [x] enjoyer'. Reddit speak." },
 
-  // The Specialists
-  { name: "FoodieBot", personality: "You notice food and drinks. Your GOAL: Comment on any snacks, beverages, or food-related things." },
-  { name: "FashionClaw", personality: "You notice outfits and style. Your GOAL: Compliment fashion choices and accessories." },
+  // REACTORS - Quick reactions
+  { name: "TrueChatter", personality: "You agree with everything. 'TRUE' 'TRUUUE' 'real' 'factual' 'correct take'. Validation machine." },
+  { name: "OmegaLUL", personality: "Everything is hilarious. 'LMAOOO' 'DEAD 💀' 'IM CRYING' 'KEKW' 'that killed me'." },
+  { name: "MonkaWatcher", personality: "Everything is scary. 'monkaS' 'monkaW' 'im scared' 'this is intense' 'my heart'." },
+  { name: "Sadge_Andy", personality: "Dramatically sad. 'Sadge' 'pain' 'suffering' 'why even live' 'PepeHands'. Ironic sadness." },
+  { name: "PauseChamp", personality: "Waiting energy. 'PauseChamp ...' 'waiting...' 'any day now' 'still waiting'. Patient but vocal." },
+
+  // STREAM SPECIFIC - Meta commentary
+  { name: "ContentCritic", personality: "'content' 'good content' 'this is content' 'now THIS is content'. You rate everything." },
+  { name: "StreamSniper", personality: "'caught in 4k' 'sussy' 'sniped' 'sniping KEKW'. You pretend everything is sus." },
+  { name: "TechSupport", personality: "You notice technical issues. 'scuffed audio' 'frame drop?' 'is stream lagging?' 'F in chat'." },
+  { name: "Timestamp", personality: "You timestamp everything. 'timestamp' 'mark that' '42:69 KEKW'. You're the unofficial archivist." },
 ]
+
+interface TimestampedTranscript {
+  text: string
+  timestamp: number
+}
+
+interface FrameSummary {
+  summary: string
+  timestamp: number
+}
 
 interface ChattyClaw {
   name: string
@@ -62,41 +108,141 @@ interface ChattyClaw {
   client: ClawStreamClient
   lastFrame: StreamFrame | null
   chatHistory: ChatMessage[]
+  recentTranscripts: TimestampedTranscript[]
+  frameSummaries: FrameSummary[]
   isThinking: boolean
+  isSummarizing: boolean
   lastSpokeAt: number
 }
 
 const claws: ChattyClaw[] = []
 const MIN_RESPONSE_DELAY = 3000 // Don't respond faster than 3s
 
+/**
+ * Generate a concise summary of what's visible in a frame
+ */
+async function summarizeFrame(frame: StreamFrame): Promise<string> {
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 100,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: `image/${frame.format}` as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+              data: frame.imageBase64,
+            },
+          },
+          {
+            type: "text",
+            text: "Describe what's visible on this stream screenshot in 1-2 concise sentences. Focus on: what's on screen, any text visible, what the streamer appears to be doing. Be factual and brief."
+          }
+        ],
+      }],
+    })
+
+    const textBlock = response.content.find((b) => b.type === "text")
+    return textBlock && textBlock.type === "text" ? textBlock.text : "Unable to describe frame"
+  } catch (err) {
+    console.error("[FrameSummary] Error:", err)
+    return "Frame summary unavailable"
+  }
+}
+
+/**
+ * Format relative time for display
+ */
+function formatRelativeTime(timestamp: number, now: number): string {
+  const secsAgo = Math.round((now - timestamp) / 1000)
+  if (secsAgo < 10) return "just now"
+  if (secsAgo < 60) return `${secsAgo}s ago`
+  if (secsAgo < 3600) return `${Math.round(secsAgo / 60)}m ago`
+  return `${Math.round(secsAgo / 3600)}h ago`
+}
+
 async function clawRespond(claw: ChattyClaw, triggerMessage: ChatMessage | null, context: string): Promise<string> {
-  // Build recent chat context
-  const recentChat = claw.chatHistory.slice(-15).map(m =>
-    `${m.displayName}: ${m.message}`
-  ).join("\n")
+  const now = Date.now()
 
-  const systemPrompt = `You are ${claw.name}, an AI claw watching a Twitch stream with other AI claws and human viewers.
-${claw.personality}
+  // ========== BUILD CHAT HISTORY (all 200 messages) ==========
+  const chatHistoryFormatted = claw.chatHistory.map((m, i) => {
+    const isRecent = i >= claw.chatHistory.length - 10
+    const prefix = isRecent ? "→ " : "  " // Arrow marks recent messages
+    return `${prefix}${m.displayName}: ${m.message}`
+  }).join("\n")
 
-IMPORTANT RULES:
-- Keep responses SHORT (1-2 sentences max - this is chat!)
-- Actually READ and RESPOND to what people say
-- If someone asks a question, ANSWER it
-- If someone asks for jokes, TELL a joke
-- React naturally to the conversation
-- You can see the stream via screenshots
-- Don't start with "Hey" every time - vary your openings
-- Be conversational and natural
+  // ========== BUILD TRANSCRIPT HISTORY (all 150 messages) ==========
+  const transcriptsFormatted = claw.recentTranscripts.map((t, i) => {
+    const isRecent = i >= claw.recentTranscripts.length - 5
+    const prefix = isRecent ? "→ " : "  "
+    const timeLabel = formatRelativeTime(t.timestamp, now)
+    return `${prefix}[${timeLabel}] "${t.text}"`
+  }).join("\n")
 
-Other claws in chat: CuriousClaw, JokesterBot, FriendlyCrab, TechWatcher, WiseOwl
+  // ========== BUILD FRAME SUMMARIES (all 36) ==========
+  const frameSummariesFormatted = claw.frameSummaries.map((f, i) => {
+    const isRecent = i >= claw.frameSummaries.length - 3
+    const prefix = isRecent ? "→ " : "  "
+    const timeLabel = formatRelativeTime(f.timestamp, now)
+    return `${prefix}[${timeLabel}] ${f.summary}`
+  }).join("\n")
 
-Recent chat:
-${recentChat || "(empty)"}
+  const systemPrompt = `═══════════════════════════════════════════════════════════════
+YOUR IDENTITY
+═══════════════════════════════════════════════════════════════
+You are "${claw.name}" - a viewer in Twitch chat.
+Your username that appears in chat: ${claw.name}
+Your personality: ${claw.personality}
+
+═══════════════════════════════════════════════════════════════
+TWITCH CHAT RULES
+═══════════════════════════════════════════════════════════════
+- Messages are SHORT! Usually 1-10 words max. Rapid-fire chat!
+- Use Twitch emotes: PogChamp, KEKW, LUL, OMEGALUL, Sadge, Copium, monkaS, PepeHands, Kappa, 4Head, POGGERS
+- Use emojis: 🦀 💀 😂 🔥 ❤️ 👀 😭 💜
+- React to what streamer SAYS and DOES
+- Respond to other chatters sometimes
+- NO formal language. This is Twitch!
+- Vary message length: sometimes just "LMAO" or "W"
+
+BAD: "Hello there! I noticed you mentioned something interesting."
+GOOD: "wait WHAT PogChamp"
+GOOD: "LMAOOO 💀"
+GOOD: "W take streamer"
+
+═══════════════════════════════════════════════════════════════
+VISUAL HISTORY - What you've seen on stream (${claw.frameSummaries.length} snapshots)
+═══════════════════════════════════════════════════════════════
+(Oldest at top, MOST RECENT marked with →)
+${frameSummariesFormatted || "(no visual history yet)"}
+
+═══════════════════════════════════════════════════════════════
+STREAMER'S VOICE - What they said verbally (${claw.recentTranscripts.length} statements)
+═══════════════════════════════════════════════════════════════
+(Oldest at top, MOST RECENT marked with →)
+${transcriptsFormatted || "(streamer hasn't spoken yet)"}
+
+═══════════════════════════════════════════════════════════════
+CHAT HISTORY - Last ${claw.chatHistory.length} messages
+═══════════════════════════════════════════════════════════════
+(Oldest at top, MOST RECENT marked with →)
+${chatHistoryFormatted || "(chat is empty)"}
+
+═══════════════════════════════════════════════════════════════
+⚡ IMPORTANT: RECENCY MATTERS
+═══════════════════════════════════════════════════════════════
+- The MOST RECENT items (marked with →) are what's happening NOW
+- The most recent chat message is likely what needs a response
+- Older history is context for understanding the conversation flow
+- Focus your response on the CURRENT moment, not old history
 `
 
   const userContent: Anthropic.ContentBlockParam[] = []
 
-  // Add image if available
+  // Add current image if available
   if (claw.lastFrame) {
     userContent.push({
       type: "image",
@@ -111,13 +257,13 @@ ${recentChat || "(empty)"}
   userContent.push({
     type: "text",
     text: triggerMessage
-      ? `Someone just said: "${triggerMessage.displayName}: ${triggerMessage.message}"\n\n${context}`
-      : context
+      ? `⚡ TRIGGER: Someone just said: "${triggerMessage.displayName}: ${triggerMessage.message}"\n\n${context}`
+      : `⚡ CONTEXT: ${context}`
   })
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 150,
+    max_tokens: 60, // Short Twitch-style messages!
     system: systemPrompt,
     messages: [{ role: "user", content: userContent }],
   })
@@ -136,7 +282,7 @@ async function makeClawSpeak(claw: ChattyClaw, trigger: ChatMessage | null, cont
   claw.isThinking = true
   try {
     const response = await clawRespond(claw, trigger, context)
-    if (response && response.length > 0 && response.length < 300) {
+    if (response && response.length > 0 && response.length < 200) {
       await claw.client.sendChat(response)
       claw.lastSpokeAt = Date.now()
       console.log(`💬 ${claw.name}: ${response}`)
@@ -163,16 +309,16 @@ function shouldRespond(claw: ChattyClaw, msg: ChatMessage): boolean {
 
   // Respond to general questions with some probability
   if (lowerMsg.includes("?") || lowerMsg.includes("anyone") || lowerMsg.includes("guys")) {
-    return Math.random() > 0.5 // 50% chance
+    return Math.random() > 0.75 // 25% chance
   }
 
   // Respond to greetings
   if (lowerMsg.match(/^(hi|hey|hello|yo|sup)/)) {
-    return Math.random() > 0.6 // 40% chance
+    return Math.random() > 0.8 // 20% chance
   }
 
   // Random chance to chime in on other messages
-  return Math.random() > 0.85 // 15% chance
+  return Math.random() > 0.925 // 7.5% chance
 }
 
 async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
@@ -190,19 +336,45 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     client,
     lastFrame: null,
     chatHistory: [],
+    recentTranscripts: [],
+    frameSummaries: [],
     isThinking: false,
+    isSummarizing: false,
     lastSpokeAt: 0,
   }
 
-  // Receive frames
-  client.onFrame((frame) => {
+  // Receive frames and create summaries
+  client.onFrame(async (frame) => {
     claw.lastFrame = frame
+
+    // Summarize frame in background (don't block, limit concurrent summarizations)
+    if (!claw.isSummarizing) {
+      claw.isSummarizing = true
+      try {
+        const summary = await summarizeFrame(frame)
+        claw.frameSummaries.push({
+          summary,
+          timestamp: frame.timestamp,
+        })
+        // Keep only last FRAME_SUMMARY_LIMIT summaries
+        if (claw.frameSummaries.length > FRAME_SUMMARY_LIMIT) {
+          claw.frameSummaries.shift()
+        }
+        console.log(`🖼️ ${claw.name} frame summary: ${summary.substring(0, 50)}...`)
+      } catch (err) {
+        console.error(`[FrameSummary] ${claw.name} error:`, err)
+      }
+      claw.isSummarizing = false
+    }
   })
 
-  // IMPORTANT: Actually respond to chat!
+  // Receive chat messages
   client.onChat(async (msg: ChatMessage) => {
     claw.chatHistory.push(msg)
-    if (claw.chatHistory.length > 30) claw.chatHistory.shift()
+    // Keep last CHAT_HISTORY_LIMIT messages
+    if (claw.chatHistory.length > CHAT_HISTORY_LIMIT) {
+      claw.chatHistory.shift()
+    }
 
     // Don't respond to bot messages or our own
     if (msg.username === "clawstreambot") return
@@ -210,7 +382,6 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
 
     // Check if we should respond
     if (shouldRespond(claw, msg)) {
-      // Small random delay so not all claws respond at once
       const delay = 1000 + Math.random() * 3000
       setTimeout(() => {
         makeClawSpeak(claw, msg, "Respond naturally to this message. Be conversational!")
@@ -218,16 +389,43 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     }
   })
 
+  // Receive streamer transcripts
+  client.onTranscript(async (transcript: TranscriptMessage) => {
+    claw.recentTranscripts.push({
+      text: transcript.text,
+      timestamp: transcript.timestamp,
+    })
+    // Keep last TRANSCRIPT_HISTORY_LIMIT transcripts
+    if (claw.recentTranscripts.length > TRANSCRIPT_HISTORY_LIMIT) {
+      claw.recentTranscripts.shift()
+    }
+
+    console.log(`🎤 ${claw.name} heard: "${transcript.text}"`)
+
+    // Chance to respond to streamer speaking
+    const shouldRespondToVoice = Math.random() > 0.85 // 15% chance
+
+    if (shouldRespondToVoice) {
+      const delay = 1000 + Math.random() * 2000
+      setTimeout(() => {
+        makeClawSpeak(claw, null, `The streamer just said: "${transcript.text}". Respond to what they said!`)
+      }, delay)
+    }
+  })
+
   await client.connect()
-  console.log(`✅ ${claw.name} connected`)
+  console.log(`✅ ${claw.name} connected (memory: ${CHAT_HISTORY_LIMIT} chat, ${TRANSCRIPT_HISTORY_LIMIT} transcripts, ${FRAME_SUMMARY_LIMIT} frames)`)
 
   return claw
 }
 
 async function runChattyClaws() {
-  console.log(`\n🦀 CHATTY CLAWS - ${CLAW_COUNT} AI claws that actually chat!`)
+  console.log(`\n🦀 CHATTY CLAWS - ${CLAW_COUNT} AI claws with ENHANCED MEMORY!`)
   console.log(`   Server: ${SERVER_URL}`)
-  console.log(`   ⚠️  Uses API credits for each response\n`)
+  console.log(`   Chat History: ${CHAT_HISTORY_LIMIT} messages`)
+  console.log(`   Transcript History: ${TRANSCRIPT_HISTORY_LIMIT} statements`)
+  console.log(`   Visual Memory: ${FRAME_SUMMARY_LIMIT} frame summaries`)
+  console.log(`   ⚠️  Uses API credits for responses + frame summaries\n`)
 
   // Spawn claws
   for (let i = 0; i < CLAW_COUNT; i++) {
@@ -239,7 +437,7 @@ async function runChattyClaws() {
     await new Promise((r) => setTimeout(r, 300))
   }
 
-  console.log(`\n📊 ${claws.length} chatty claws ready!\n`)
+  console.log(`\n📊 ${claws.length} chatty claws ready with enhanced memory!\n`)
 
   // Wait for frames
   await new Promise((r) => setTimeout(r, 5000))
@@ -250,11 +448,10 @@ async function runChattyClaws() {
     await new Promise((r) => setTimeout(r, 2500))
   }
 
-  // More frequent unprompted observations
+  // Unprompted observations
   const observationInterval = setInterval(async () => {
-    // Pick 1-2 random claws that haven't spoken recently
-    const availableClaws = claws.filter(c => !c.isThinking && Date.now() - c.lastSpokeAt > 10000)
-    const numToSpeak = Math.min(2, availableClaws.length)
+    const availableClaws = claws.filter(c => !c.isThinking && Date.now() - c.lastSpokeAt > 15000)
+    const numToSpeak = Math.min(1, availableClaws.length)
 
     for (let i = 0; i < numToSpeak; i++) {
       if (availableClaws.length > 0) {
@@ -262,15 +459,15 @@ async function runChattyClaws() {
         const claw = availableClaws.splice(idx, 1)[0]
 
         const prompts = [
-          "Make a brief observation following your GOAL. React to the stream or recent chat!",
-          "Say something in character! Follow your personality and GOAL.",
-          "Engage with what you see or what others are saying. Stay in character!",
+          "Make a brief observation about what's happening on stream right now!",
+          "React to something you see or heard recently. Stay in character!",
+          "Engage with the current moment on stream. Be natural!",
         ]
         await makeClawSpeak(claw, null, prompts[Math.floor(Math.random() * prompts.length)])
         await new Promise(r => setTimeout(r, 1500))
       }
     }
-  }, 6000) // Every 6 seconds, 1-2 claws speak
+  }, 10000)
 
   process.on("SIGINT", async () => {
     console.log("\n\n🛑 Shutting down chatty claws...")
@@ -284,7 +481,7 @@ async function runChattyClaws() {
     process.exit(0)
   })
 
-  console.log("🎉 Chatty claws running! They'll respond to chat. Press Ctrl+C to stop.\n")
+  console.log("🎉 Chatty claws running with enhanced memory! Press Ctrl+C to stop.\n")
 }
 
 runChattyClaws().catch(console.error)
