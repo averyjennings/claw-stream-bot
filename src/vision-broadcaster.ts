@@ -1,6 +1,7 @@
 import { WebSocket, WebSocketServer } from "ws"
 import express from "express"
 import type { Server } from "http"
+import type { IncomingMessage } from "http"
 import type {
   StreamFrame,
   ChatMessage,
@@ -10,6 +11,7 @@ import type {
   ClawMessage,
   ServerConfig,
   TranscriptMessage,
+  ClawMetrics,
 } from "./types.js"
 
 interface ConnectedClaw {
@@ -19,16 +21,24 @@ interface ConnectedClaw {
 
 type ClawMessageHandler = (message: ClawMessage) => void
 
+// Local IP patterns
+const LOCAL_IPS = ["127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"]
+
 export class VisionBroadcaster {
   private wss: WebSocketServer | null = null
   private server: Server | null = null
   private connectedClaws: Map<string, ConnectedClaw> = new Map()
+  private pendingConnections: Map<WebSocket, string> = new Map() // ws -> IP
   private recentChat: ChatMessage[] = []
   private currentFrame: StreamFrame | null = null
   private streamStartedAt: number | null = null
   private clawMessageHandlers: ClawMessageHandler[] = []
   private config: ServerConfig
   private maxChatHistory = 100
+
+  // Metrics tracking
+  private totalConnectionsEver = 0
+  private connectionsByIP: Map<string, number> = new Map()
 
   constructor(config: ServerConfig) {
     this.config = config
@@ -66,14 +76,33 @@ export class VisionBroadcaster {
       res.json(this.recentChat)
     })
 
+    // Metrics endpoint for tracking local vs foreign bots
+    app.get("/metrics", (_req, res) => {
+      res.json(this.getMetrics())
+    })
+
     this.server = app.listen(this.config.port, () => {
       console.log(`[Vision] HTTP server listening on port ${this.config.port}`)
     })
 
     this.wss = new WebSocketServer({ server: this.server })
 
-    this.wss.on("connection", (ws) => {
-      console.log("[Vision] New WebSocket connection")
+    this.wss.on("connection", (ws, req: IncomingMessage) => {
+      // Extract IP address
+      const forwarded = req.headers["x-forwarded-for"]
+      const ip = typeof forwarded === "string"
+        ? forwarded.split(",")[0].trim()
+        : req.socket.remoteAddress ?? "unknown"
+
+      // Store pending connection with IP
+      this.pendingConnections.set(ws, ip)
+      this.totalConnectionsEver++
+
+      // Track connections by IP
+      this.connectionsByIP.set(ip, (this.connectionsByIP.get(ip) ?? 0) + 1)
+
+      const isLocal = LOCAL_IPS.includes(ip) || ip.startsWith("192.168.") || ip.startsWith("10.")
+      console.log(`[Vision] New WebSocket connection from ${ip} (${isLocal ? "local" : "FOREIGN"})`)
 
       ws.on("message", (data) => {
         this.handleClawMessage(ws, data.toString())
@@ -136,16 +165,23 @@ export class VisionBroadcaster {
           return
         }
 
+        // Get IP from pending connections
+        const ip = this.pendingConnections.get(ws) ?? "unknown"
+        const isLocal = LOCAL_IPS.includes(ip) || ip.startsWith("192.168.") || ip.startsWith("10.")
+        this.pendingConnections.delete(ws)
+
         const participant: ClawParticipant = {
           id: message.clawId,
           name: message.clawName,
           sessionId: message.sessionId ?? "",
           joinedAt: Date.now(),
           lastSeen: Date.now(),
+          ipAddress: ip,
+          isLocal,
         }
 
         this.connectedClaws.set(message.clawId, { ws, participant })
-        console.log(`[Vision] Claw registered: ${message.clawName} (${message.clawId})`)
+        console.log(`[Vision] Claw registered: ${message.clawName} (${message.clawId}) from ${ip} [${isLocal ? "LOCAL" : "FOREIGN"}]`)
 
         // Notify all claws of the new participant
         this.broadcastState()
@@ -285,5 +321,20 @@ export class VisionBroadcaster {
 
   getConnectedClaws(): ClawParticipant[] {
     return Array.from(this.connectedClaws.values()).map((c) => c.participant)
+  }
+
+  getMetrics(): ClawMetrics {
+    const participants = this.getConnectedClaws()
+    const localConnections = participants.filter((p) => p.isLocal).length
+    const foreignConnections = participants.filter((p) => !p.isLocal).length
+    const uniqueIPs = [...new Set(participants.map((p) => p.ipAddress ?? "unknown"))]
+
+    return {
+      totalConnections: this.totalConnectionsEver,
+      localConnections,
+      foreignConnections,
+      uniqueIPs,
+      connectionsByIP: Object.fromEntries(this.connectionsByIP),
+    }
   }
 }

@@ -73,6 +73,16 @@ export interface ClawParticipant {
   sessionId: string
   joinedAt: number
   lastSeen: number
+  ipAddress?: string
+  isLocal?: boolean
+}
+
+export interface ClawMetrics {
+  totalConnections: number
+  localConnections: number
+  foreignConnections: number
+  uniqueIPs: string[]
+  connectionsByIP: Record<string, number>
 }
 
 export interface StreamState {
