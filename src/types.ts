@@ -54,6 +54,7 @@ export interface StreamFrame {
   format: string
   width: number
   height: number
+  summary?: string // AI-generated description of what's visible
 }
 
 export interface ChatMessage {

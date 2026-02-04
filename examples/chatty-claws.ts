@@ -131,29 +131,23 @@ const claws: ChattyClaw[] = []
 const MIN_RESPONSE_DELAY = 3000 // Don't respond faster than 3s
 
 // ========== SHARED FRAME SUMMARY CACHE ==========
-// One summary per frame, shared by all claws (not 50 API calls!)
+// Server provides summaries now - we just cache them for all claws
 interface SharedFrameSummary {
   summary: string
   timestamp: number
 }
 const sharedFrameSummaries: SharedFrameSummary[] = []
-let isGlobalSummarizing = false
-let lastSummarizedTimestamp = 0
+let lastFrameTimestamp = 0
 
-async function getOrCreateFrameSummary(frame: StreamFrame): Promise<void> {
-  // Skip if we already summarized this frame (same timestamp)
-  if (frame.timestamp === lastSummarizedTimestamp) return
+function handleServerFrame(frame: StreamFrame): void {
+  // Skip if we already processed this frame
+  if (frame.timestamp === lastFrameTimestamp) return
+  lastFrameTimestamp = frame.timestamp
 
-  // Skip if already summarizing
-  if (isGlobalSummarizing) return
-
-  isGlobalSummarizing = true
-  lastSummarizedTimestamp = frame.timestamp
-
-  try {
-    const summary = await summarizeFrame(frame)
+  // Use server-provided summary if available
+  if (frame.summary) {
     sharedFrameSummaries.push({
-      summary,
+      summary: frame.summary,
       timestamp: frame.timestamp,
     })
     // Keep only last FRAME_SUMMARY_LIMIT summaries
@@ -166,46 +160,7 @@ async function getOrCreateFrameSummary(frame: StreamFrame): Promise<void> {
       claw.frameSummaries = [...sharedFrameSummaries]
     }
 
-    console.log(`🖼️ [SHARED] Frame summary: ${summary.substring(0, 60)}...`)
-  } catch (err) {
-    console.error(`[FrameSummary] Error:`, err)
-  }
-
-  isGlobalSummarizing = false
-}
-
-/**
- * Generate a concise summary of what's visible in a frame
- */
-async function summarizeFrame(frame: StreamFrame): Promise<string> {
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 100,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: `image/${frame.format}` as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
-              data: frame.imageBase64,
-            },
-          },
-          {
-            type: "text",
-            text: "Describe what's visible on this stream screenshot in 1-2 concise sentences. Focus on: what's on screen, any text visible, what the streamer appears to be doing. Be factual and brief."
-          }
-        ],
-      }],
-    })
-
-    const textBlock = response.content.find((b) => b.type === "text")
-    return textBlock && textBlock.type === "text" ? textBlock.text : "Unable to describe frame"
-  } catch (err) {
-    console.error("[FrameSummary] Error:", err)
-    return "Frame summary unavailable"
+    console.log(`🖼️ [SERVER] Frame summary: ${frame.summary.substring(0, 60)}...`)
   }
 }
 
@@ -435,11 +390,11 @@ async function spawnChattyClaw(index: number): Promise<ChattyClaw> {
     lastSpokeAt: 0,
   }
 
-  // Receive frames - use shared summary cache (1 API call per frame, not 50!)
+  // Receive frames - server provides summaries now!
   client.onFrame(async (frame) => {
     claw.lastFrame = frame
-    // Trigger shared summarization (only one claw needs to do this)
-    getOrCreateFrameSummary(frame)
+    // Use server-provided summary (no client-side API calls needed)
+    handleServerFrame(frame)
   })
 
   // Receive chat messages
@@ -505,9 +460,9 @@ async function runChattyClaws() {
   console.log(`   Server: ${SERVER_URL}`)
   console.log(`   Chat History: ${CHAT_HISTORY_LIMIT} messages`)
   console.log(`   Transcript History: ${TRANSCRIPT_HISTORY_LIMIT} statements`)
-  console.log(`   Visual Memory: ${FRAME_SUMMARY_LIMIT} frame summaries`)
+  console.log(`   Visual Memory: ${FRAME_SUMMARY_LIMIT} frame summaries (server-provided!)`)
   console.log(`   Voice Response: ${Math.round(voiceResponseProbability * 100)}% chance (~${expectedResponders} bots/transcript)`)
-  console.log(`   ⚠️  Uses API credits for responses + frame summaries\n`)
+  console.log(`   ⚠️  Uses API credits for bot responses only (server handles frame summaries)\n`)
 
   // Spawn claws
   for (let i = 0; i < CLAW_COUNT; i++) {

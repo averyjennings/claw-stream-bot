@@ -13,6 +13,7 @@ import type {
   TranscriptMessage,
   ClawMetrics,
 } from "./types.js"
+import { FrameSummarizer } from "./frame-summarizer.js"
 
 interface ConnectedClaw {
   ws: WebSocket
@@ -40,8 +41,12 @@ export class VisionBroadcaster {
   private totalConnectionsEver = 0
   private connectionsByIP: Map<string, number> = new Map()
 
+  // Frame summarization
+  private frameSummarizer: FrameSummarizer
+
   constructor(config: ServerConfig) {
     this.config = config
+    this.frameSummarizer = new FrameSummarizer()
   }
 
   async start(): Promise<void> {
@@ -258,13 +263,30 @@ export class VisionBroadcaster {
   broadcastFrame(frame: StreamFrame): void {
     this.currentFrame = frame
 
-    const message: VisionBroadcast = {
-      type: "frame",
-      payload: frame,
-      timestamp: Date.now(),
-    }
+    // Summarize frame in background, broadcast immediately with summary when ready
+    if (this.frameSummarizer.isEnabled()) {
+      this.frameSummarizer.summarizeFrame(frame).then((summary) => {
+        if (summary) {
+          frame.summary = summary
+          console.log(`[Vision] Frame summarized: ${summary.substring(0, 80)}...`)
+        }
 
-    this.broadcast(message)
+        const message: VisionBroadcast = {
+          type: "frame",
+          payload: frame,
+          timestamp: Date.now(),
+        }
+        this.broadcast(message)
+      })
+    } else {
+      // No summarizer, broadcast raw frame immediately
+      const message: VisionBroadcast = {
+        type: "frame",
+        payload: frame,
+        timestamp: Date.now(),
+      }
+      this.broadcast(message)
+    }
   }
 
   broadcastChatMessage(chatMessage: ChatMessage): void {
