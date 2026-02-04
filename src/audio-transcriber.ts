@@ -215,6 +215,13 @@ export class AudioTranscriber {
         "applause",
         "silence",
         "♪",
+        // Comment/engagement prompts (YouTube hallucinations)
+        "write a comment",
+        "leave a comment",
+        "comment below",
+        "like the video",
+        "like this video",
+        "npm update",  // weird coding stream hallucination
       ]
 
       const lowerText = text.toLowerCase()
@@ -243,10 +250,14 @@ export class AudioTranscriber {
       // Combined short phrase filter
       const isLikelyShortHallucination = isShortNonsense && startsWithFiller
 
-      if (text && text.length > 0 && !isHallucination && !isTooShort && !isSingleCommonWord && !isLikelyShortHallucination) {
+      // Filter out repeated words like "the the the the" or "you you you"
+      const uniqueWords = new Set(words.map(w => w.replace(/[^a-z]/g, "")))
+      const isRepeatedWord = words.length >= 3 && uniqueWords.size === 1 && singleWordHallucinations.includes([...uniqueWords][0])
+
+      if (text && text.length > 0 && !isHallucination && !isTooShort && !isSingleCommonWord && !isLikelyShortHallucination && !isRepeatedWord) {
         console.log(`[Audio] Transcribed: "${text}" (buffering...)`)
         this.addToBuffer(text)
-      } else if (isHallucination || isSingleCommonWord || isLikelyShortHallucination) {
+      } else if (isHallucination || isSingleCommonWord || isLikelyShortHallucination || isRepeatedWord) {
         console.log(`[Audio] Filtered hallucination: "${text}"`)
       }
     } catch (err) {
