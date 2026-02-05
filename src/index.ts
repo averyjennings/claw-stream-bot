@@ -39,6 +39,20 @@ async function main(): Promise<void> {
     if (clawMessage.type === "chat") {
       await twitchClient.sendClawMessage(clawMessage.clawName, clawMessage.content)
       console.log(`[Claw Chat] ${clawMessage.clawName}: ${clawMessage.content}`)
+
+      // Broadcast to all claws so they see each other's messages
+      // This allows bots to @mention other bots since their names appear in chat history
+      // Note: tmi.js filters self-messages, so we manually broadcast claw messages
+      broadcaster.broadcastChatMessage({
+        timestamp: Date.now(),
+        username: clawMessage.clawName.toLowerCase(),
+        displayName: clawMessage.clawName,
+        message: clawMessage.content,
+        channel: config.twitch.channel,
+        isMod: false,
+        isSubscriber: false,
+        badges: {},
+      })
     } else if (clawMessage.type === "observation") {
       console.log(`[Claw Observation] ${clawMessage.clawName}: ${clawMessage.content}`)
     } else if (clawMessage.type === "reaction") {
