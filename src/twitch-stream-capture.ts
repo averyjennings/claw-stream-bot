@@ -24,10 +24,12 @@ export class TwitchStreamCapture {
   private config: TwitchStreamCaptureConfig
   private isRunning = false
   private frameHandlers: FrameHandler[] = []
-  private captureProcess: ChildProcess | null = null
   private captureInterval: ReturnType<typeof setInterval> | null = null
   private tempDir: string
   private frameIndex = 0
+
+  // Track active processes to ensure proper cleanup
+  private activeProcesses: Set<ChildProcess> = new Set()
 
   constructor(config: TwitchStreamCaptureConfig) {
     this.config = {
@@ -69,10 +71,13 @@ export class TwitchStreamCapture {
       this.captureInterval = null
     }
 
-    if (this.captureProcess) {
-      this.captureProcess.kill()
-      this.captureProcess = null
+    // Kill all active processes
+    for (const proc of this.activeProcesses) {
+      if (!proc.killed) {
+        proc.kill()
+      }
     }
+    this.activeProcesses.clear()
 
     console.log("[TwitchCapture] Stopped")
   }
@@ -155,14 +160,25 @@ export class TwitchStreamCapture {
         stdio: ["ignore", "pipe", "pipe"],
       })
 
+      // Track process for cleanup
+      this.activeProcesses.add(streamlink)
+
+      const cleanupStreamlink = () => {
+        if (!streamlink.killed) {
+          streamlink.kill()
+        }
+        this.activeProcesses.delete(streamlink)
+      }
+
       const timeout = setTimeout(() => {
-        streamlink.kill("SIGKILL")
+        cleanupStreamlink()
         // Try to extract frame anyway if we got partial data
         this.extractFrame(tempVideo, outputFile).then(resolve).catch(reject)
       }, 15000)
 
       streamlink.on("close", () => {
         clearTimeout(timeout)
+        this.activeProcesses.delete(streamlink)
 
         // Step 2: Extract frame with ffmpeg
         this.extractFrame(tempVideo, outputFile)
@@ -178,6 +194,7 @@ export class TwitchStreamCapture {
 
       streamlink.on("error", (err) => {
         clearTimeout(timeout)
+        cleanupStreamlink()
         if (fs.existsSync(tempVideo)) {
           fs.unlinkSync(tempVideo)
         }
@@ -206,12 +223,16 @@ export class TwitchStreamCapture {
         stdio: ["ignore", "pipe", "pipe"],
       })
 
+      // Track process for cleanup
+      this.activeProcesses.add(ffmpeg)
+
       let stderr = ""
       ffmpeg.stderr?.on("data", (data) => {
         stderr += data.toString()
       })
 
       ffmpeg.on("close", (code) => {
+        this.activeProcesses.delete(ffmpeg)
         if (code === 0 && fs.existsSync(outputFile)) {
           resolve()
         } else {
@@ -219,7 +240,10 @@ export class TwitchStreamCapture {
         }
       })
 
-      ffmpeg.on("error", reject)
+      ffmpeg.on("error", (err) => {
+        this.activeProcesses.delete(ffmpeg)
+        reject(err)
+      })
     })
   }
 
@@ -235,33 +259,47 @@ export class TwitchStreamCapture {
         stdio: ["ignore", "pipe", "pipe"],
       })
 
+      // Track process for cleanup
+      this.activeProcesses.add(streamlink)
+
+      let resolved = false
+      const cleanup = (result: boolean) => {
+        if (resolved) return
+        resolved = true
+        if (!streamlink.killed) {
+          streamlink.kill()
+        }
+        this.activeProcesses.delete(streamlink)
+        resolve(result)
+      }
+
       let stdout = ""
       streamlink.stdout?.on("data", (data) => {
         stdout += data.toString()
       })
 
       streamlink.on("close", (code) => {
+        this.activeProcesses.delete(streamlink)
+        if (resolved) return
+
         if (code === 0) {
           try {
             const info = JSON.parse(stdout)
-            resolve(!!info.streams && Object.keys(info.streams).length > 0)
+            cleanup(!!info.streams && Object.keys(info.streams).length > 0)
           } catch {
-            resolve(false)
+            cleanup(false)
           }
         } else {
-          resolve(false)
+          cleanup(false)
         }
       })
 
       streamlink.on("error", () => {
-        resolve(false)
+        cleanup(false)
       })
 
       // Timeout after 10s
-      setTimeout(() => {
-        streamlink.kill()
-        resolve(false)
-      }, 10000)
+      setTimeout(() => cleanup(false), 10000)
     })
   }
 }
